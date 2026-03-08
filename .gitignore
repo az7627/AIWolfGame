@@ -1,3 +1,9 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
 # Python
 __pycache__/
 *.py[cod]
