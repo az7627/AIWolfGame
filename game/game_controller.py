@@ -369,7 +369,7 @@ class GameController:
                 
                 if result["type"] == "kill":
                     print(f"\n{self.players[wolf_id].name} 的想法：")
-                    print(result["content"])
+                    # print(result["content"])
                     target = result.get("target")
                     if target:
                         wolf_targets.append(target)
@@ -1281,7 +1281,7 @@ class GameController:
             prompt = self._generate_campaign_speech_prompt(role, candidates)
             response = agent.ask_ai(prompt, None, self.game_state)
             
-            print(response)
+            # print(response)
             
             # 记录发言
             self.game_state["history"].append({
@@ -1542,7 +1542,7 @@ class GameController:
 """
         
         response = agent.ask_ai(prompt, None, self.game_state)
-        print(response)
+        # print(response)
         
         # 记录警徽流
         self._parse_sheriff_flow(response, sheriff_id)

@@ -85,24 +85,46 @@ class BaseAIAgent:
             base_url=config.get("baseurl")
         )
 
-    def ask_ai(self, prompt: str, system_prompt: str = None, game_state: Dict = None) -> str:
-        """统一的 AI 调用接口"""
+    def ask_ai(self, prompt: str, system_prompt: str = None, game_state: Dict = None,
+           stream: bool = True) -> str:
+        """
+        统一的 AI 调用接口，默认开启流式输出（逐字打印到终端）
+        """
         try:
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
-            
-            response = self.client.chat.completions.create(
-                model=self.config["model"],
-                messages=messages
-            )
-            return response.choices[0].message.content
+
+            if stream:
+                # 流式调用
+                stream_response = self.client.chat.completions.create(
+                    model=self.config["model"],
+                    messages=messages,
+                    stream=True
+                )
+                collected_chunks = []
+                # 逐块接收并实时打印
+                for chunk in stream_response:
+                    if chunk.choices and chunk.choices[0].delta:
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            print(delta.content, end='', flush=True)
+                            collected_chunks.append(delta.content)
+                print()  # 回复结束后换行
+                full_response = ''.join(collected_chunks)
+                return full_response
+            else:
+                # 非流式调用（备用）
+                response = self.client.chat.completions.create(
+                    model=self.config["model"],
+                    messages=messages
+                )
+                return response.choices[0].message.content
+
         except Exception as e:
-            error_msg = str(e)
-            logging.error(f"AI 调用失败: {error_msg}")
-            
-            # API错误时返回弃票
+            logging.error(f"AI 调用失败: {e}")
+            # 即使出错也给出可读反馈
             excuses = [
                 "刚才网络有点卡，没看清前面的讨论",
                 "刚才走神了，能再说一下情况吗",
@@ -111,7 +133,9 @@ class BaseAIAgent:
                 "我这边信号不好，刚才没听清"
             ]
             excuse = random.choice(excuses)
-            return f"【皱眉思考】{excuse}。这一轮我选择弃票，需要更多信息才能做出判断。弃票"
+            fallback_text = f"【皱眉思考】{excuse}。这一轮我选择弃票，需要更多信息才能做出判断。弃票"
+            print(fallback_text)          # 出错时也直接打印，保证有反馈
+            return fallback_text
 
     def _extract_target(self, response: str) -> Optional[str]:
         """从 AI 响应中提取目标玩家 ID
