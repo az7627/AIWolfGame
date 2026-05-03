@@ -85,11 +85,12 @@ class BaseAIAgent:
             base_url=config.get("baseurl")
         )
 
-    def ask_ai(self, prompt: str, system_prompt: str = None, game_state: Dict = None,
-           stream: bool = True) -> str:
+    def ask_ai(self, prompt, system_prompt=None, game_state=None, stream=True):
         """
         统一的 AI 调用接口，默认开启流式输出（逐字打印到终端）
         """
+        GRAY = '\033[90m'
+        RESET = '\033[0m'
         try:
             messages = []
             if system_prompt:
@@ -97,25 +98,49 @@ class BaseAIAgent:
             messages.append({"role": "user", "content": prompt})
 
             if stream:
-                # 流式调用
                 stream_response = self.client.chat.completions.create(
                     model=self.config["model"],
                     messages=messages,
-                    stream=True
+                    stream=True,
+                    extra_body=self.config.get("extra_body", None)
                 )
-                collected_chunks = []
-                # 逐块接收并实时打印
+                collected_content = []
+                state = 'start'  # 'start', 'reasoning', 'content'
+                
                 for chunk in stream_response:
                     if chunk.choices and chunk.choices[0].delta:
                         delta = chunk.choices[0].delta
-                        if delta.content:
-                            print(delta.content, end='', flush=True)
-                            collected_chunks.append(delta.content)
-                print()  # 回复结束后换行
-                full_response = ''.join(collected_chunks)
-                return full_response
+                        reasoning = getattr(delta, 'reasoning_content', None)
+                        content = delta.content
+
+                        # 先输出推理内容
+                        if reasoning:
+                            if state == 'start':
+                                print(f"💭 {GRAY}", end='', flush=True)
+                                state = 'reasoning'
+                            elif state == 'content':
+                                # 从发言切换到推理（不太可能，但处理）
+                                print(f"\n\n💭 {GRAY}", end='', flush=True)
+                                state = 'reasoning'
+                            print(reasoning, end='', flush=True)
+                            # 不收集 reasoning 到最终回复
+
+                        # 再输出正常内容
+                        if content:
+                            if state == 'start':
+                                print(f"💬 ", end='', flush=True)
+                                state = 'content'
+                            elif state == 'reasoning':
+                                print(f"{RESET}\n\n💬 ", end='', flush=True)
+                                state = 'content'
+                            # state == 'content' 继续输出，无前缀
+                            print(content, end='', flush=True)
+                            collected_content.append(content)
+
+                # 结束时确保颜色重置，并换行
+                print(RESET)
+                return ''.join(collected_content)
             else:
-                # 非流式调用（备用）
                 response = self.client.chat.completions.create(
                     model=self.config["model"],
                     messages=messages
