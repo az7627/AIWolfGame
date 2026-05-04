@@ -1397,7 +1397,7 @@ class GameController:
 请回复"退水"或"坚持"。
 """
             
-            response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name)
+            response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name, stream=False)
             
             # 检查是否自爆
             if role.is_wolf() and ("自爆" in response or "爆炸" in response):
