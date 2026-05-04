@@ -365,10 +365,10 @@ class GameController:
             
             for wolf_id in wolves:
                 agent = self.ai_agents[wolf_id]
-                result = agent.discuss(self.game_state)
+                result = agent.discuss(self.game_state, speaker_name=self.players[wolf_id].name)
                 
                 if result["type"] == "kill":
-                    print(f"\n{self.players[wolf_id].name} 的想法：")
+                    
                     # print(result["content"])
                     target = result.get("target")
                     if target:
@@ -701,8 +701,7 @@ class GameController:
             if not role.is_alive:
                 continue
             
-            print(f"\n{role.name} 的发言：")
-            result = agent.discuss(self.game_state)
+            result = agent.discuss(self.game_state, speaker_name=role.name)
             
             # 处理不同类型的返回结果
             if isinstance(result, dict):
@@ -715,7 +714,7 @@ class GameController:
                 logging.warning(f"{role.name} 的发言太短，要求重新发言")
                 continue
             
-            print(speech)
+            
             
             # 记录发言
             message_id = f"{self.current_round}_{player_id}_{len(round_speeches)}"
@@ -754,7 +753,7 @@ class GameController:
                 continue
             
             print(f"\n{role.name} 要补充发言吗？")
-            result = agent.discuss(self.game_state)
+            result = agent.discuss(self.game_state, speaker_name=role.name)
             
             # 处理不同类型的返回结果
             if isinstance(result, dict):
@@ -763,7 +762,7 @@ class GameController:
                 speech = result
             
             if len(speech) > 50:  # 如果有实质性的补充
-                print(speech)
+                
                 round_speeches.append({
                     "player": role.name,
                     "role": role.role_type.value,
@@ -1107,7 +1106,7 @@ class GameController:
                     print(f"\n{player.name} 的遗言：")
                     agent = self.ai_agents[player_id]
                     last_words = agent.last_words(self.game_state)
-                    print(last_words)
+                    
                     
                     # 记录遗言
                     self.game_state["history"].append({
@@ -1188,7 +1187,6 @@ class GameController:
             if not role.is_alive:
                 continue
             
-            print(f"\n{role.name} 的补充发言：")
             
             # 生成补充发言的提示词
             prompt = f"""
@@ -1212,7 +1210,7 @@ class GameController:
 注意：你现在的处境很危险，需要说服其他玩家不要投给你！
 """
             
-            result = agent.discuss(self.game_state)
+            result = agent.discuss(self.game_state, speaker_name=role.name)
             
             # 处理不同类型的返回结果
             if isinstance(result, dict):
@@ -1220,7 +1218,7 @@ class GameController:
             else:
                 speech = result
             
-            print(speech)
+            
             
             # 记录补充发言
             self.game_state["history"].append({
@@ -1275,11 +1273,11 @@ class GameController:
             role = self.players[player_id]
             agent = self.ai_agents[player_id]
             
-            print(f"\n{role.name} 的竞选发言：")
+            # print(f"\n{role.name} 的竞选发言：")
             
             # 生成竞选发言提示词
             prompt = self._generate_campaign_speech_prompt(role, candidates)
-            response = agent.ask_ai(prompt, None, self.game_state)
+            response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name)
             
             # print(response)
             
@@ -1337,7 +1335,7 @@ class GameController:
 请回复"竞选"或"不竞选"。
 """
         
-        response = agent.ask_ai(prompt, None, self.game_state)
+        response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name, stream=False)
         if re.search(r'\b竞选\b', response) and not re.search(r'不竞选|不要竞选|放弃竞选', response):
             return True
         if "举手" in response:
@@ -1399,7 +1397,7 @@ class GameController:
 请回复"退水"或"坚持"。
 """
             
-            response = agent.ask_ai(prompt, None, self.game_state)
+            response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name)
             
             # 检查是否自爆
             if role.is_wolf() and ("自爆" in response or "爆炸" in response):
@@ -1440,7 +1438,6 @@ class GameController:
             role = self.players[voter_id]
             agent = self.ai_agents[voter_id]
             
-            print(f"\n{role.name} 投票...")
             
             # 生成投票提示词
             prompt = f"""
@@ -1458,7 +1455,7 @@ class GameController:
 3. 用"选择[玩家ID]"格式投票
 """
             
-            response = agent.ask_ai(prompt, None, self.game_state)
+            response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name)
             target_id = agent._extract_target(response)
             
             if target_id in candidates:

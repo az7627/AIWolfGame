@@ -85,12 +85,16 @@ class BaseAIAgent:
             base_url=config.get("baseurl")
         )
 
-    def ask_ai(self, prompt, system_prompt=None, game_state=None, stream=True):
+    def ask_ai(self, prompt, system_prompt=None, game_state=None, stream=True, speaker_name=None):
         """
         统一的 AI 调用接口，默认开启流式输出（逐字打印到终端）
+        - speaker_name: 若提供，则在思考/发言前显示角色标签
+        - 通过 config['show_reasoning'] 控制是否显示思考过程
         """
         GRAY = '\033[90m'
         RESET = '\033[0m'
+        show_reasoning = self.config["show_reasoning"]
+
         try:
             messages = []
             if system_prompt:
@@ -102,54 +106,70 @@ class BaseAIAgent:
                     model=self.config["model"],
                     messages=messages,
                     stream=True,
-                    extra_body=self.config.get("extra_body", None)
+                    extra_body=self.config["extra_body"]
                 )
                 collected_content = []
                 state = 'start'  # 'start', 'reasoning', 'content'
-                
+
                 for chunk in stream_response:
-                    if chunk.choices and chunk.choices[0].delta:
-                        delta = chunk.choices[0].delta
-                        reasoning = getattr(delta, 'reasoning_content', None)
-                        content = delta.content
+                    if not chunk.choices or not chunk.choices[0].delta:
+                        continue
 
-                        # 先输出推理内容
-                        if reasoning:
-                            if state == 'start':
+                    delta = chunk.choices[0].delta
+                    reasoning = getattr(delta, 'reasoning_content', None)
+                    content = delta.content
+
+                    # ----- 推理内容（仅在需要显示时处理） -----
+                    if reasoning and show_reasoning:
+                        if state == 'start':
+                            if speaker_name:
+                                print(f"💭 {speaker_name} 的想法：\n{GRAY}", end='', flush=True)
+                            else:
                                 print(f"💭 {GRAY}", end='', flush=True)
-                                state = 'reasoning'
-                            elif state == 'content':
-                                # 从发言切换到推理（不太可能，但处理）
-                                print(f"\n\n💭 {GRAY}", end='', flush=True)
-                                state = 'reasoning'
-                            print(reasoning, end='', flush=True)
-                            # 不收集 reasoning 到最终回复
+                            state = 'reasoning'
+                        elif state == 'content':
+                            # 从发言切换回推理：重置颜色 + 换行
+                            print(f"{RESET}\n\n💭 {GRAY}", end='', flush=True)
+                            state = 'reasoning'
+                        print(reasoning, end='', flush=True)
 
-                        # 再输出正常内容
-                        if content:
-                            if state == 'start':
-                                print(f"💬 ", end='', flush=True)
-                                state = 'content'
-                            elif state == 'reasoning':
+                    # 当不显示推理时，完全忽略 reasoning，也不改变 state
+                    # （无需额外分支，静默跳过即可）
+
+                    # ----- 正常内容 -----
+                    if content:
+                        if state == 'start':
+                            if speaker_name:
+                                print(f"💬 {speaker_name} 的发言：\n", end='', flush=True)
+                            else:
+                                print("💬 ", end='', flush=True)
+                            state = 'content'
+                        elif state == 'reasoning':
+                            # 从推理切换到发言：重置颜色 + 换行 + 角色标签（如果有）
+                            if speaker_name:
+                                print(f"{RESET}\n\n💬 {speaker_name} 的发言：\n", end='', flush=True)
+                            else:
                                 print(f"{RESET}\n\n💬 ", end='', flush=True)
-                                state = 'content'
-                            # state == 'content' 继续输出，无前缀
-                            print(content, end='', flush=True)
-                            collected_content.append(content)
+                            state = 'content'
+                        # 输出本次内容
+                        print(content, end='', flush=True)
+                        collected_content.append(content)
 
-                # 结束时确保颜色重置，并换行
-                print(RESET)
+                print(RESET)  # 确保最后颜色复原
                 return ''.join(collected_content)
+
             else:
+                # 非流式备用
                 response = self.client.chat.completions.create(
                     model=self.config["model"],
-                    messages=messages
+                    messages=messages,
+                    extra_body=self.config.get("extra_body", None)
                 )
                 return response.choices[0].message.content
 
         except Exception as e:
             logging.error(f"AI 调用失败: {e}")
-            # 即使出错也给出可读反馈
+            import random
             excuses = [
                 "刚才网络有点卡，没看清前面的讨论",
                 "刚才走神了，能再说一下情况吗",
@@ -159,9 +179,9 @@ class BaseAIAgent:
             ]
             excuse = random.choice(excuses)
             fallback_text = f"【皱眉思考】{excuse}。这一轮我选择弃票，需要更多信息才能做出判断。弃票"
-            print(fallback_text)          # 出错时也直接打印，保证有反馈
+            print(fallback_text)
             return fallback_text
-
+    
     def _extract_target(self, response: str) -> Optional[str]:
         """从 AI 响应中提取目标玩家 ID
         
@@ -230,10 +250,10 @@ class BaseAIAgent:
             self.logger.error(f"提取目标ID时出错: {str(e)}")
             return None
 
-    def discuss(self, game_state: Dict[str, Any]) -> Dict[str, Any]:
+    def discuss(self, game_state: Dict[str, Any], speaker_name: Optional[str] = None) -> Dict[str, Any]:
         """讨论阶段"""
         prompt = self._generate_discussion_prompt(game_state)
-        response = self.ask_ai(prompt, self._get_discussion_prompt(), game_state)
+        response = self.ask_ai(prompt, self._get_discussion_prompt(), game_state, speaker_name=speaker_name)
         
         # 记录讨论，包含说话者信息
         self.memory.add_conversation({
@@ -478,11 +498,11 @@ class WerewolfAgent(BaseAIAgent):
         super().__init__(config, role)
         self.team_members: List[str] = []  # 狼队友列表
 
-    def discuss(self, game_state: Dict[str, Any]) -> Dict[str, Any]:
+    def discuss(self, game_state: Dict[str, Any], speaker_name: Optional[str] = None) -> Dict[str, Any]:
         """狼人讨论"""
         prompt = self._generate_discussion_prompt(game_state)
-        response = self.ask_ai(prompt, self._get_werewolf_discussion_prompt(), game_state)
-        
+        response = self.ask_ai(prompt, self._get_werewolf_discussion_prompt(), game_state, speaker_name=speaker_name)
+            
         # 记录讨论
         self.memory.add_conversation({
             "round": game_state["current_round"],
@@ -603,10 +623,10 @@ class WerewolfAgent(BaseAIAgent):
         """
 
 class VillagerAgent(BaseAIAgent):
-    def discuss(self, game_state: Dict[str, Any]) -> str:
+    def discuss(self, game_state: Dict[str, Any], speaker_name: Optional[str] = None) -> Dict[str, Any]:
         """村民讨论发言"""
         prompt = self._generate_discussion_prompt(game_state)
-        response = self.ask_ai(prompt, self._get_villager_discussion_prompt(), game_state)
+        response = self.ask_ai(prompt, self._get_villager_discussion_prompt(), game_state, speaker_name=speaker_name)
         
         # 记录讨论
         self.memory.add_conversation({
@@ -1101,10 +1121,10 @@ class WolfKingAgent(BaseAIAgent):
         self.role: WolfKing = role
         self.team_members: List[str] = []
 
-    def discuss(self, game_state: Dict[str, Any]) -> Dict[str, Any]:
+    def discuss(self, game_state: Dict[str, Any], speaker_name: Optional[str] = None) -> Dict[str, Any]:
         """狼王讨论"""
         prompt = self._generate_discussion_prompt(game_state)
-        response = self.ask_ai(prompt, self._get_wolf_king_discussion_prompt(), game_state)
+        response = self.ask_ai(prompt, self._get_villager_discussion_prompt(), game_state, speaker_name=speaker_name)
         
         self.memory.add_conversation({
             "round": game_state["current_round"],
