@@ -1400,7 +1400,7 @@ class GameController:
             response = agent.ask_ai(prompt, None, self.game_state, speaker_name=role.name, stream=False)
             
             # 检查是否自爆
-            if role.is_wolf() and ("自爆" in response or "爆炸" in response):
+            if role.is_wolf() and (("自爆" in response or "爆炸" in response) and not ("不自爆" in response or "不爆炸" in response)):
                 print(f"\n【爆炸】{role.name} 选择自爆！")
                 self._handle_wolf_explode(player_id, first_day=True)
                 return []  # 自爆后竞选结束
