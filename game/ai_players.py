@@ -183,73 +183,49 @@ class BaseAIAgent:
             return fallback_text
     
     def _extract_target(self, response: str) -> Optional[str]:
-        """从 AI 响应中提取目标玩家 ID
-        
-        Args:
-            response: AI的完整响应文本
-        
-        Returns:
-            str: 目标玩家ID，如果没有找到则返回None
-        """
         try:
-            # 检查是否弃票
-            if re.search(r'弃票|放弃投票|不投票|暂不投票|跳过投票', response):
-                return None
-            
-            # 使用正则表达式匹配以下格式：
-            # 1. 选择[玩家ID]
-            # 2. 选择 玩家ID
-            # 3. 选择：玩家ID
-            # 4. (玩家ID)
-            # 5. 玩家ID(xxx)
-            # 6. 我选择 玩家ID
-            # 7. 投票给 玩家ID
-            # 8. 怀疑 玩家ID
-            patterns = [
+            # 1. 明确的投票
+            vote_patterns = [
                 r'选择\[([^\]]+)\]',             # 匹配 选择[player1] 
                 r'选择[：:]\s*(\w+\d*)',          # 匹配 选择：player1
-                r'选择\s+(\w+\d*)',              # 匹配 选择 player1
+                r'选择\s*(\w+\d*)',              # 匹配 选择 player1
                 r'我[的]?选择[是为]?\s*[：:"]?\s*(\w+\d*)',  # 匹配 我选择是player1
                 r'投票(给|选择|选)\s*[：:"]?\s*(\w+\d*)',   # 匹配 投票给player1
+            ]
+            for pattern in vote_patterns:
+                match = re.search(pattern, response)
+                if match:
+                    target = match.group(match.lastindex or 1).strip()
+                    if re.match(r'^player\d+$', target):
+                        return target
+
+            # 2. 弃票
+            if re.search(r'弃票|放弃投票|不投票|暂不投票|跳过投票', response):
+                return None
+
+            # 3. 模糊不定的投票兜底
+            guess_patterns = [
                 r'[我认为]*(\w+\d+)[最非常]*(可疑|是狼人|有问题)',  # 匹配 player1最可疑
                 r'[决定|准备]*(投|投票|票)[给向](\w+\d+)',  # 匹配 投给player1
                 r'\((\w+\d*)\)',                 # 匹配 (player1)
                 r'([a-zA-Z]+\d+)\s*\(',          # 匹配 player1(
                 r'.*\b(player\d+)\b.*',          # 最宽松匹配，尝试找到任何player+数字
             ]
-            
-            # 首先尝试专用格式
-            for i, pattern in enumerate(patterns):
-                # 投票给player1 特殊处理
-                if i == 4:  # 第5个模式需要特殊处理第二个捕获组
-                    matches = re.findall(pattern, response)
-                    if matches:
-                        for match in matches:
-                            if isinstance(match, tuple) and len(match) > 1:
-                                target = match[1].strip()
-                                if re.match(r'^player\d+$', target):
-                                    return target
-                else:
-                    matches = re.findall(pattern, response)
-                    if matches:
-                        # 提取玩家ID，去除可能的额外空格和括号
-                        target = matches[-1].strip('()[]"\'：: ').strip()
-                        # 验证是否是有效的玩家ID格式
-                        if re.match(r'^player\d+$', target):
-                            return target
-            
-            # 如果上面的模式都没匹配到，尝试简单提取任何player+数字
-            all_player_ids = re.findall(r'player\d+', response)
-            if all_player_ids:
-                return all_player_ids[-1]  # 返回最后一个匹配到的ID
-            
+            for pattern in guess_patterns:
+                match = re.search(pattern, response)
+                if match:
+                    groups = match.groups()
+                    target = next((g for g in reversed(groups) if g and re.match(r'^player\d+$', g)), None)
+                    if target:
+                        return target
+
             self.logger.warning(f"无法从响应中提取有效的目标ID: {response}")
             return None
-        
+
         except Exception as e:
             self.logger.error(f"提取目标ID时出错: {str(e)}")
             return None
-
+        
     def discuss(self, game_state: Dict[str, Any], speaker_name: Optional[str] = None) -> Dict[str, Any]:
         """讨论阶段"""
         prompt = self._generate_discussion_prompt(game_state)
